@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ru" data-lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMT: Minecraft Metro Trains</title>
+<meta name="description" content="Аддоны для Minecraft Bedrock: вагоны метро «Номерной» с управлением и звуками. Addons for Minecraft Bedrock: metro cars with controls and sounds.">
+<style>
+  :root {
+    --board: #16233a;   /* тёмно-синяя табличка станции */
+    --tile: #f2f4f5;    /* кафель платформы */
+    --ink: #1b2430;
+    --muted: #556070;
+    --red: #d42b36;     /* линия 1: контроллеры */
+    --teal: #0c797d;    /* линия 2: поезда (цвет стандартного «Номерного») */
+    --line: var(--board);
+    --bar-x: 20px;      /* левый край полосы линии */
+    --bar-w: 10px;
+    --content-x: 64px;  /* отступ текста от левого края */
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--tile);
+    color: var(--ink);
+    font-family: "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+  }
+
+  /* переключатель языка: показываем только нужный язык */
+  html[data-lang="ru"] .en,
+  html[data-lang="en"] .ru { display: none !important; }
+
+  a:focus-visible, button:focus-visible {
+    outline: 3px solid #f0a800;
+    outline-offset: 3px;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  /* ---------- участок линии ---------- */
+  .stop {
+    position: relative;
+    padding: 0 20px 44px var(--content-x);
+  }
+  .stop::before {              /* полоса линии */
+    content: "";
+    position: absolute;
+    left: var(--bar-x);
+    width: var(--bar-w);
+    top: 0;
+    bottom: 0;
+    background: var(--line);
+  }
+  .stop.first { --line: var(--board); padding-top: 28px; }
+  .stop.first::before { top: 44px; }
+  .stop.ctrl { --line: var(--red); }
+  .stop.trains { --line: var(--teal); }
+
+  .head { position: relative; display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+  .head::before {              /* станция на линии */
+    content: "";
+    position: absolute;
+    left: calc(var(--bar-x) + var(--bar-w) / 2 - 13px - var(--content-x));
+    top: 50%;
+    width: 26px;
+    height: 26px;
+    margin-top: -13px;
+    border-radius: 50%;
+    background: #fff;
+    border: 6px solid var(--line);
+  }
+  .stop.first .head::before { background: var(--board); border-color: var(--board); }
+
+  .badge {                     /* номер линии */
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--line);
+    color: #fff;
+    font-weight: 800;
+    font-size: 19px;
+    display: grid;
+    place-items: center;
+  }
+
+  h1, h2, h3 { margin: 0; line-height: 1.1; }
+  h1 {
+    font-size: clamp(54px, 15vw, 92px);
+    font-weight: 900;
+    letter-spacing: -0.03em;
+  }
+  h2 { font-size: clamp(26px, 6.4vw, 34px); font-weight: 800; letter-spacing: -0.01em; }
+  h3 { font-size: 20px; font-weight: 800; margin: 26px 0 10px; }
+
+  .plate {                     /* табличка с названием, как на станции */
+    background: var(--board);
+    color: #fff;
+    display: inline-block;
+    padding: 6px 22px 10px;
+    border-radius: 10px;
+  }
+  .sub { font-size: 19px; font-weight: 600; color: var(--muted); margin: 10px 0 0; }
+  .lead { max-width: 60ch; margin: 18px 0 0; }
+  .meta { color: var(--muted); font-size: 15px; margin: 14px 0 0; }
+
+  /* ---------- язык ---------- */
+  .langs { display: flex; justify-content: flex-end; gap: 6px; padding: 14px 20px 0; }
+  .langs button {
+    font: inherit;
+    font-weight: 700;
+    font-size: 15px;
+    min-width: 48px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 2px solid var(--board);
+    background: transparent;
+    color: var(--board);
+    cursor: pointer;
+  }
+  .langs button[aria-pressed="true"] { background: var(--board); color: #fff; }
+
+  /* ---------- картинки ---------- */
+  .shot {
+    margin: 4px 0 20px;
+    border: 3px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: #dde3e6;
+  }
+  .shot img { display: block; width: 100%; height: auto; }
+
+  p { margin: 0 0 12px; max-width: 62ch; }
+
+  code {
+    font-family: "Consolas", "Roboto Mono", "Courier New", monospace;
+    font-size: 0.92em;
+    background: #e3e8ea;
+    border-radius: 5px;
+    padding: 2px 6px;
+    word-break: break-all;
+  }
+
+  /* ---------- шаги установки: станции на той же линии ---------- */
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li { position: relative; margin: 0 0 18px; max-width: 62ch; }
+  .steps li::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--bar-x) + var(--bar-w) / 2 - 8px - var(--content-x));
+    top: 4px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    border: 4px solid var(--line);
+  }
+  .steps strong { font-weight: 800; }
+
+  /* ---------- список предметов ---------- */
+  .items { margin: 0 0 14px; padding: 0; }
+  .items dt { font-weight: 800; margin-top: 10px; }
+  .items dd { margin: 0; max-width: 62ch; }
+
+  /* ---------- парк вагонов ---------- */
+  .fleet { list-style: none; margin: 14px 0 18px; padding: 0; display: grid; gap: 12px; }
+  .fleet li { display: flex; align-items: center; gap: 14px; max-width: 62ch; }
+  .livery {
+    flex: none;
+    width: 76px;
+    height: 32px;
+    border-radius: 7px;
+    overflow: hidden;
+    display: flex;
+    box-shadow: 0 0 0 2px var(--ink);
+  }
+  .livery i { display: block; height: 100%; }
+  .livery i:first-child { flex: 3; }
+  .livery i:last-child { flex: 2; }
+  .fleet strong { display: block; line-height: 1.25; }
+  .fleet span { color: var(--muted); font-size: 15px; }
+
+  /* ---------- кнопка ---------- */
+  .btn {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 15px 26px;
+    border-radius: 10px;
+    background: var(--line);
+    color: #fff;
+    font-weight: 800;
+    font-size: 18px;
+    text-decoration: none;
+  }
+  .btn:hover { filter: brightness(1.12); }
+  .ver { margin: 10px 0 0; color: var(--muted); font-size: 15px; }
+
+  /* ---------- пересадка между линиями ---------- */
+  .transfer {
+    position: relative;
+    min-height: 78px;
+    padding: 0 20px 0 var(--content-x);
+    display: flex;
+    align-items: center;
+  }
+  .transfer::before {
+    content: "";
+    position: absolute;
+    left: var(--bar-x);
+    width: var(--bar-w);
+    top: 0;
+    bottom: 0;
+    background: linear-gradient(var(--red) 50%, var(--teal) 50%);
+  }
+  .transfer::after {
+    content: "";
+    position: absolute;
+    left: calc(var(--bar-x) + var(--bar-w) / 2 - 20px);
+    top: 50%;
+    width: 40px;
+    height: 40px;
+    margin-top: -20px;
+    border-radius: 50%;
+    background: #fff;
+    border: 7px solid transparent;
+    background-image: linear-gradient(#fff, #fff), conic-gradient(var(--red) 0 50%, var(--teal) 50% 100%);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+  }
+  .transfer p { margin: 0; font-weight: 700; }
+
+  /* ---------- конечная ---------- */
+  .terminus { position: relative; padding: 0 20px 56px var(--content-x); --line: var(--teal); }
+  .terminus::before {
+    content: "";
+    position: absolute;
+    left: var(--bar-x);
+    width: var(--bar-w);
+    top: 0;
+    height: 32px;
+    background: var(--teal);
+  }
+  .terminus::after {
+    content: "";
+    position: absolute;
+    left: calc(var(--bar-x) + var(--bar-w) / 2 - 13px);
+    top: 20px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--teal);
+    border: 6px solid var(--teal);
+  }
+  .terminus p { margin: 0; padding-top: 18px; font-weight: 700; max-width: 62ch; }
+
+  @media (min-width: 700px) {
+    :root { --content-x: 84px; --bar-x: 30px; }
+    body { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="langs" role="group" aria-label="Язык / Language">
+    <button type="button" data-l="ru" aria-pressed="true">RU</button>
+    <button type="button" data-l="en" aria-pressed="false">EN</button>
+  </div>
+
+  <!-- начальная станция -->
+  <section class="stop first" aria-labelledby="top-title">
+    <div class="head">
+      <h1 id="top-title"><span class="plate">MMT</span></h1>
+    </div>
+    <p class="sub">Minecraft Metro Trains</p>
+    <p class="lead ru">Аддоны для Minecraft Bedrock: вагоны метро «Номерной» (81-717/714) с управлением, рельсами и звуками. Нужны оба аддона: контроллеры и поезда.</p>
+    <p class="lead en">Addons for Minecraft Bedrock: “Nomerny” (81-717/714) metro cars with controls, rails and sounds. You need both addons: the controllers and the trains.</p>
+    <p class="meta ru">Проверено на Minecraft Bedrock 1.21.131.</p>
+    <p class="meta en">Tested on Minecraft Bedrock 1.21.131.</p>
+  </section>
+
+  <!-- линия 1: контроллеры -->
+  <section class="stop ctrl" aria-labelledby="ctrl-title">
+    <div class="head">
+      <span class="badge" aria-hidden="true">1</span>
+      <h2 id="ctrl-title">MMT Controllers</h2>
+    </div>
+
+    <figure class="shot" style="margin-left:0;margin-right:0">
+      <img src="controllers.png" alt="Предметы управления MMT Controllers / MMT Controllers items" onerror="this.closest('figure').style.display='none'">
+    </figure>
+
+    <p class="ru">Предметы управления: газ, тормоз, нейтраль, реверс и гудок. Работают с любым поездом, у которого есть семья <code>mmt_train</code>, а не только с вагонами с этого сайта.</p>
+    <p class="en">Control items: throttle, brake, neutral, reverse and horn. They work with any train that has the <code>mmt_train</code> family, not only the cars from this site.</p>
+
+    <h3 class="ru">Как начать</h3>
+    <h3 class="en">Getting started</h3>
+
+    <!-- русская инструкция -->
+    <ol class="steps ru">
+      <li><strong>Скачай и открой оба файла.</strong> MMT Controllers (кнопка ниже) и MMT Trains (в нижнем блоке). Minecraft сам их импортирует.</li>
+      <li><strong>Включи паки в мире.</strong> В настройках мира нужны все четыре: Behavior и Resource у каждого аддона. Для команд включи читы.</li>
+      <li><strong>Выдай себе тег машиниста:</strong> <code>/tag @s add driver</code></li>
+      <li><strong>Поставь вагон на рельсы</strong> яйцом призыва. Прямые рельсы, повороты и подъёмы работают.</li>
+      <li><strong>Бери предметы управления</strong> в творческом инвентаре (категория «Снаряжение») и жми по ним правой кнопкой, на телефоне тапом. Управляется ближайший поезд в радиусе 32 блоков.</li>
+    </ol>
+
+    <!-- английская инструкция -->
+    <ol class="steps en">
+      <li><strong>Download and open both files.</strong> MMT Controllers (button below) and MMT Trains (in the lower block). Minecraft imports them by itself.</li>
+      <li><strong>Turn on the packs in your world.</strong> You need all four: Behavior and Resource of each addon. Enable cheats to use commands.</li>
+      <li><strong>Give yourself the driver tag:</strong> <code>/tag @s add driver</code></li>
+      <li><strong>Place a car on the rails</strong> with its spawn egg. Straight rails, curves and slopes work.</li>
+      <li><strong>Take the control items</strong> from the creative inventory (Equipment category) and use them with the right mouse button, or a tap on a phone. The nearest train within 32 blocks is controlled.</li>
+    </ol>
+
+    <h3 class="ru">Предметы</h3>
+    <h3 class="en">Items</h3>
+    <dl class="items ru">
+      <dt>Газ</dt><dd>Каждое нажатие повышает позицию контроллера на 1, до «Газ 3».</dd>
+      <dt>Тормоз</dt><dd>Понижает позицию на 1, до «Тормоз 4».</dd>
+      <dt>Нейтраль</dt><dd>Сбрасывает позицию в ноль, поезд едет с той же скоростью.</dd>
+      <dt>Реверс</dt><dd>Меняет направление, только на полной остановке.</dd>
+      <dt>Гудок</dt><dd>Сигнал поезда.</dd>
+    </dl>
+    <dl class="items en">
+      <dt>Throttle</dt><dd>Each use raises the controller notch by 1, up to “Throttle 3”.</dd>
+      <dt>Brake</dt><dd>Lowers the notch by 1, down to “Brake 4”.</dd>
+      <dt>Neutral</dt><dd>Resets the notch to zero, the train keeps its current speed.</dd>
+      <dt>Reverse</dt><dd>Changes direction, only when fully stopped.</dd>
+      <dt>Horn</dt><dd>The train signal.</dd>
+    </dl>
+    <p class="ru">Максимальная скорость 75 км/ч.</p>
+    <p class="en">Top speed is 75 km/h.</p>
+
+    <a class="btn" href="MMT_controllers.mcaddon" download>
+      <span class="ru">Скачать MMT Controllers</span><span class="en">Download MMT Controllers</span>
+    </a>
+    <p class="ver ru">Версия 1.4.1, файл .mcaddon</p>
+    <p class="ver en">Version 1.4.1, .mcaddon file</p>
+  </section>
+
+  <!-- пересадка -->
+  <div class="transfer">
+    <p class="ru">Пересадка: поездам нужны контроллеры</p>
+    <p class="en">Transfer: the trains need the controllers</p>
+  </div>
+
+  <!-- линия 2: поезда -->
+  <section class="stop trains" aria-labelledby="trains-title">
+    <div class="head">
+      <span class="badge" aria-hidden="true">2</span>
+      <h2 id="trains-title">MMT Trains</h2>
+    </div>
+
+    <figure class="shot" style="margin-left:0;margin-right:0">
+      <img src="trains.png" alt="Вагоны «Номерной» в четырёх окрасках / “Nomerny” cars in four liveries" onerror="this.closest('figure').style.display='none'">
+    </figure>
+
+    <p class="ru">Вагон «Номерной» (81-717/714) в четырёх окрасках. В творческом инвентаре четыре яйца призыва: ставь их на рельсы.</p>
+    <p class="en">The “Nomerny” (81-717/714) car in four liveries. The creative inventory has four spawn eggs: place them on the rails.</p>
+
+    <ul class="fleet ru">
+      <li><span class="livery" aria-hidden="true"><i style="background:#0c797d"></i><i style="background:#fcffff"></i></span><div><strong>Номерной</strong><span>бирюзовый и белый, стандартная окраска</span></div></li>
+      <li><span class="livery" aria-hidden="true"><i style="background:#ff0000"></i><i style="background:#ffeb00"></i></span><div><strong>Номерной «Красная стрела»</strong><span>красный и жёлтый</span></div></li>
+      <li><span class="livery" aria-hidden="true"><i style="background:#182ea5"></i><i style="background:#ffeb00"></i></span><div><strong>Номерной «Минск»</strong><span>синий и жёлтый, две фары по краям</span></div></li>
+      <li><span class="livery" aria-hidden="true"><i style="background:#c022ff"></i><i style="background:#fcffff"></i></span><div><strong>Номерной «Баку»</strong><span>фиолетовый и белый</span></div></li>
+    </ul>
+    <ul class="fleet en">
+      <li><span class="livery" aria-hidden="true"><i style="background:#0c797d"></i><i style="background:#fcffff"></i></span><div><strong>Nomerny</strong><span>teal and white, the standard livery</span></div></li>
+      <li><span class="livery" aria-hidden="true"><i style="background:#ff0000"></i><i style="background:#ffeb00"></i></span><div><strong>Nomerny “Krasnaya Strela”</strong><span>red and yellow</span></div></li>
+      <li><span class="livery" aria-hidden="true"><i style="background:#182ea5"></i><i style="background:#ffeb00"></i></span><div><strong>Nomerny “Minsk”</strong><span>blue and yellow, two headlights at the edges</span></div></li>
+      <li><span class="livery" aria-hidden="true"><i style="background:#c022ff"></i><i style="background:#fcffff"></i></span><div><strong>Nomerny “Baku”</strong><span>purple and white</span></div></li>
+    </ul>
+
+    <p class="ru">В каждом вагоне 19 мест: место машиниста и 18 сидячих. Есть звуки разгона, хода и гудок. Двери и фары пока не работают.</p>
+    <p class="en">Every car has 19 seats: the driver's seat and 18 passenger seats. It has acceleration and running sounds and a horn. The doors and headlights do not work yet.</p>
+
+    <a class="btn" href="MMT_trains.mcaddon" download>
+      <span class="ru">Скачать MMT Trains</span><span class="en">Download MMT Trains</span>
+    </a>
+    <p class="ver ru">Версия 1.3.1, файл .mcaddon</p>
+    <p class="ver en">Version 1.3.1, .mcaddon file</p>
+  </section>
+
+  <!-- конечная -->
+  <footer class="terminus">
+    <p class="ru">При создании сайта использовалось ИИ! При создании мода использовалось ИИ!</p>
+    <p class="en">AI was used to create this website! AI was used to create the mod!</p>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var buttons = document.querySelectorAll('.langs button');
+
+  function setLang(l) {
+    root.setAttribute('data-lang', l);
+    root.setAttribute('lang', l);
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute('aria-pressed', buttons[i].getAttribute('data-l') === l ? 'true' : 'false');
+    }
+    try { localStorage.setItem('mmt-lang', l); } catch (e) {}
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem('mmt-lang'); } catch (e) {}
+  var guess = (navigator.language || 'ru').toLowerCase().indexOf('ru') === 0 ? 'ru' : 'en';
+  setLang(saved === 'ru' || saved === 'en' ? saved : guess);
+
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].addEventListener('click', function () { setLang(this.getAttribute('data-l')); });
+  }
+})();
+</script>
+</body>
+  </html>
